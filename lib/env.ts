@@ -22,34 +22,50 @@ function parseEnvFile(filePath: string) {
   return values;
 }
 
-function envFiles() {
-  return [
-    path.resolve(process.cwd(), ".env.local"),
-    path.resolve(process.cwd(), "my-app", ".env.local"),
-  ];
+function collectEnvFiles() {
+  const files = new Set<string>();
+  const seeds = [
+    process.cwd(),
+    path.join(process.env.USERPROFILE ?? "", "Desktop", "my-app"),
+    path.join(process.env.HOME ?? "", "Desktop", "my-app"),
+  ].filter(Boolean);
+
+  for (const seed of seeds) {
+    let dir = path.resolve(seed);
+    for (let i = 0; i < 8; i += 1) {
+      files.add(path.join(dir, ".env.local"));
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+
+  files.add(path.join(process.cwd(), "my-app", ".env.local"));
+  return [...files];
 }
 
 export function loadLocalEnvIntoProcess() {
-  for (const file of envFiles()) {
-    if (!existsSync(file)) continue;
-    const values = parseEnvFile(file);
-    for (const [name, value] of Object.entries(values)) {
-      process.env[name] = value;
+  for (const file of collectEnvFiles()) {
+    try {
+      if (!existsSync(file)) continue;
+      const values = parseEnvFile(file);
+      for (const [name, value] of Object.entries(values)) {
+        process.env[name] = value;
+      }
+    } catch {
+      // 다른 후보 경로를 계속 확인합니다.
     }
   }
 }
 
 export function getGeminiApiKey() {
   loadLocalEnvIntoProcess();
-
   const env = process.env;
-  const value = (
+  return (
     env["GEMINI_API_KEY"] ||
     env["gemini_api_key"] ||
     env["GOOGLE_API_KEY"] ||
     env["GOOGLE_GENERATIVE_AI_API_KEY"] ||
     ""
   ).trim();
-
-  return value;
 }
