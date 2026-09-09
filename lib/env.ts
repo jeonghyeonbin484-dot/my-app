@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { GEMINI_API_KEY as generatedKey } from "@/lib/gemini-secret.generated";
 
 function parseEnvFile(filePath: string) {
   const raw = readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
@@ -22,28 +23,6 @@ function parseEnvFile(filePath: string) {
   return values;
 }
 
-function collectEnvFiles() {
-  const files = new Set<string>();
-  const seeds = [
-    process.cwd(),
-    path.join(process.env.USERPROFILE ?? "", "Desktop", "my-app"),
-    path.join(process.env.HOME ?? "", "Desktop", "my-app"),
-  ].filter(Boolean);
-
-  for (const seed of seeds) {
-    let dir = path.resolve(seed);
-    for (let i = 0; i < 8; i += 1) {
-      files.add(path.join(dir, ".env.local"));
-      const parent = path.dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-  }
-
-  files.add(path.join(process.cwd(), "my-app", ".env.local"));
-  return [...files];
-}
-
 function keyFromValues(values: Record<string, string>) {
   const names = Object.keys(values);
   for (const name of names) {
@@ -55,14 +34,23 @@ function keyFromValues(values: Record<string, string>) {
 }
 
 export function getGeminiApiKey() {
-  for (const file of collectEnvFiles()) {
+  if (generatedKey?.trim()) return generatedKey.trim();
+
+  const files = [
+    path.join(process.cwd(), ".env.local"),
+    path.join(process.cwd(), "my-app", ".env.local"),
+    path.join(process.env.USERPROFILE ?? "", "Desktop", "my-app", ".env.local"),
+  ];
+
+  for (const file of files) {
     try {
       if (!existsSync(file)) continue;
       const value = keyFromValues(parseEnvFile(file));
       if (value) return value;
     } catch {
-      // 다음 경로를 시도합니다.
+      // 다음 파일을 시도합니다.
     }
   }
+
   return "";
 }

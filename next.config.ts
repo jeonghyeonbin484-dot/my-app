@@ -1,11 +1,11 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { NextConfig } from "next";
 
-function loadEnvLocal() {
+function parseEnvLocal() {
+  const values: Record<string, string> = {};
   try {
-    const filePath = path.join(__dirname, ".env.local");
-    const raw = readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+    const raw = readFileSync(path.join(__dirname, ".env.local"), "utf8").replace(/^\uFEFF/, "");
     for (const line of raw.split(/\r?\n/)) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
@@ -19,14 +19,26 @@ function loadEnvLocal() {
       ) {
         value = value.slice(1, -1);
       }
+      values[name] = value;
       process.env[name] = value;
     }
   } catch {
-    // next.config 로드 시점 실패 시 API에서 다시 읽습니다.
+    // .env.local이 없으면 빈 값으로 둡니다.
   }
+  return values;
 }
 
-loadEnvLocal();
+const localEnv = parseEnvLocal();
+const geminiKey =
+  localEnv.GEMINI_API_KEY ||
+  localEnv.gemini_api_key ||
+  process.env.GEMINI_API_KEY ||
+  "";
+
+writeFileSync(
+  path.join(__dirname, "lib", "gemini-secret.generated.ts"),
+  `export const GEMINI_API_KEY = ${JSON.stringify(geminiKey)};\n`,
+);
 
 const nextConfig: NextConfig = {
   turbopack: {
