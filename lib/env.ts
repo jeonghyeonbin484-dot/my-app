@@ -44,28 +44,25 @@ function collectEnvFiles() {
   return [...files];
 }
 
-export function loadLocalEnvIntoProcess() {
-  for (const file of collectEnvFiles()) {
-    try {
-      if (!existsSync(file)) continue;
-      const values = parseEnvFile(file);
-      for (const [name, value] of Object.entries(values)) {
-        process.env[name] = value;
-      }
-    } catch {
-      // 다른 후보 경로를 계속 확인합니다.
-    }
+function keyFromValues(values: Record<string, string>) {
+  const names = Object.keys(values);
+  for (const name of names) {
+    if (name.toLowerCase() === "gemini_api_key") return values[name]?.trim() ?? "";
+    if (name.toLowerCase() === "google_api_key") return values[name]?.trim() ?? "";
+    if (name.toLowerCase() === "google_generative_ai_api_key") return values[name]?.trim() ?? "";
   }
+  return "";
 }
 
 export function getGeminiApiKey() {
-  loadLocalEnvIntoProcess();
-  const env = process.env;
-  return (
-    env["GEMINI_API_KEY"] ||
-    env["gemini_api_key"] ||
-    env["GOOGLE_API_KEY"] ||
-    env["GOOGLE_GENERATIVE_AI_API_KEY"] ||
-    ""
-  ).trim();
+  for (const file of collectEnvFiles()) {
+    try {
+      if (!existsSync(file)) continue;
+      const value = keyFromValues(parseEnvFile(file));
+      if (value) return value;
+    } catch {
+      // 다음 경로를 시도합니다.
+    }
+  }
+  return "";
 }

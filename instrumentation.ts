@@ -1,5 +1,3 @@
 export async function register() {
-  if (process.env.NEXT_RUNTIME === "edge") return;
-  const { loadLocalEnvIntoProcess } = await import("./lib/env");
-  loadLocalEnvIntoProcess();
+  // Node 런타임에서 .env.local은 API가 파일에서 직접 읽습니다.
 }

@@ -1,4 +1,3 @@
-import { getGeminiApiKey } from "@/lib/env";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { Expense } from "@/lib/expenses";
 import { formatWon } from "@/lib/expenses";
@@ -32,8 +31,11 @@ function parseJson(text: string): ChatIntent {
   };
 }
 
-export async function interpretLedgerMessage(message: string, expenses: Expense[]): Promise<ChatIntent> {
-  const apiKey = getGeminiApiKey();
+export async function interpretLedgerMessage(
+  message: string,
+  expenses: Expense[],
+  apiKey: string,
+): Promise<ChatIntent> {
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY가 설정되지 않았습니다.");
   }

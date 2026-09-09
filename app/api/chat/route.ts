@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { interpretLedgerMessage } from "@/lib/gemini";
-import { getGeminiApiKey, loadLocalEnvIntoProcess } from "@/lib/env";
+import { getGeminiApiKey } from "@/lib/env";
 import { getErrorMessage } from "@/lib/supabase/client";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Expense } from "@/lib/expenses";
@@ -27,36 +27,13 @@ async function loadExpenses(): Promise<Expense[]> {
 
 export async function POST(request: Request) {
   try {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const envPath = path.join(process.cwd(), ".env.local");
-    if (fs.existsSync(envPath)) {
-      const raw = fs.readFileSync(envPath, "utf8").replace(/^\uFEFF/, "");
-      for (const line of raw.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith("#")) continue;
-        const eq = trimmed.indexOf("=");
-        if (eq === -1) continue;
-        const name = trimmed.slice(0, eq).trim();
-        let value = trimmed.slice(eq + 1).trim();
-        if (
-          (value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))
-        ) {
-          value = value.slice(1, -1);
-        }
-        process.env[name] = value;
-      }
-    }
-
-    loadLocalEnvIntoProcess();
     const apiKey = getGeminiApiKey();
     if (!apiKey) {
       console.error("[chat] GEMINI key missing. cwd=", process.cwd());
       return NextResponse.json(
         {
           error:
-            "GEMINI_API_KEY를 서버에서 읽지 못했습니다. my-app 폴더의 .env.local에 GEMINI_API_KEY=키 형식으로 저장했는지 확인하세요.",
+            "GEMINI_API_KEY를 파일에서 읽지 못했습니다. my-app/.env.local 첫 줄부터 GEMINI_API_KEY= 로 시작하는지 확인하세요.",
         },
         { status: 500 },
       );
@@ -69,7 +46,7 @@ export async function POST(request: Request) {
     }
 
     const expenses = await loadExpenses();
-    const parsed = await interpretLedgerMessage(message, expenses);
+    const parsed = await interpretLedgerMessage(message, expenses, apiKey);
 
     if (parsed.intent === "save" && parsed.date && parsed.amount && parsed.amount > 0 && parsed.description) {
       try {
