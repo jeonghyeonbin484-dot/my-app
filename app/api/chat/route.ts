@@ -28,6 +28,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "메시지를 입력해 주세요." }, { status: 400 });
     }
 
+    const { loadLocalEnvIntoProcess, getGeminiApiKey } = await import("@/lib/env");
+    loadLocalEnvIntoProcess();
+    if (!getGeminiApiKey()) {
+      throw new Error("GEMINI_API_KEY가 설정되지 않았습니다. .env.local을 확인한 뒤 개발 서버를 재시작하세요.");
+    }
+
     const expenses = await loadExpenses();
     const parsed = await interpretLedgerMessage(message, expenses);
 
