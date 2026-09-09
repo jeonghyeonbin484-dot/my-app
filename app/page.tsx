@@ -1,35 +1,29 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type Expense, formatWon } from "@/lib/expenses";
 import { getErrorMessage } from "@/lib/supabase/client";
 
-type Expense = {
-  id: number;
-  created_at: string;
-  date: string;
-  amount: number;
-  description: string;
+type ChatMessage = {
+  id: string;
+  role: "user" | "ai";
+  text: string;
 };
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function formatWon(value: number) {
-  return new Intl.NumberFormat("ko-KR").format(value);
-}
-
-const fieldClass =
-  "min-h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-lg text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-4 focus:ring-emerald-100 sm:min-h-12 sm:text-base";
-
 export default function Home() {
-  const [date, setDate] = useState(today);
-  const [amount, setAmount] = useState("");
-  const [description, setDescription] = useState("");
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: "welcome",
+      role: "ai",
+      text: "안녕하세요. 지출을 말씀해 주세요. 예: 오늘 점심 8,000원",
+    },
+  ]);
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,18 +31,13 @@ export default function Home() {
     async function loadExpenses() {
       setLoading(true);
       setError(null);
-
       try {
         const response = await fetch("/api/expenses", { cache: "no-store" });
         const payload = (await response.json()) as { expenses?: Expense[]; error?: string };
-        if (!response.ok) {
-          throw new Error(payload.error ?? "데이터를 불러오지 못했습니다.");
-        }
+        if (!response.ok) throw new Error(payload.error ?? "데이터를 불러오지 못했습니다.");
         if (!cancelled) setExpenses(payload.expenses ?? []);
       } catch (err) {
-        if (!cancelled) {
-          setError(getErrorMessage(err, "데이터를 불러오지 못했습니다."));
-        }
+        if (!cancelled) setError(getErrorMessage(err, "데이터를 불러오지 못했습니다."));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -60,6 +49,10 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, sending]);
+
   const total = useMemo(
     () => expenses.reduce((sum, item) => sum + item.amount, 0),
     [expenses],
@@ -67,164 +60,147 @@ export default function Home() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const parsedAmount = Number(amount.replace(/,/g, ""));
-    if (!date || !description.trim() || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      return;
-    }
+    const text = input.trim();
+    if (!text || sending) return;
 
-    setSaving(true);
+    setInput("");
     setError(null);
+    setSending(true);
+    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text }]);
 
     try {
-      const response = await fetch("/api/expenses", {
+      const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          date,
-          amount: parsedAmount,
-          description: description.trim(),
-        }),
+        body: JSON.stringify({ message: text }),
       });
-      const payload = (await response.json()) as { expense?: Expense; error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error ?? "저장에 실패했습니다.");
-      }
+      const payload = (await response.json()) as {
+        reply?: string;
+        expenses?: Expense[];
+        error?: string;
+      };
+      if (!response.ok) throw new Error(payload.error ?? "응답을 받지 못했습니다.");
 
-      if (payload.expense) {
-        setExpenses((prev) => [payload.expense as Expense, ...prev]);
-      }
-
-      setDate("");
-      setAmount("");
-      setDescription("");
+      if (payload.expenses) setExpenses(payload.expenses);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "ai",
+          text: payload.reply ?? "알겠어요.",
+        },
+      ]);
     } catch (err) {
-      setError(getErrorMessage(err, "저장에 실패했습니다."));
+      const message = getErrorMessage(err, "응답을 만들지 못했습니다.");
+      setError(message);
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: "ai", text: message },
+      ]);
     } finally {
-      setSaving(false);
+      setSending(false);
     }
   }
 
   return (
-    <div className="relative min-h-full overflow-x-hidden bg-[#f4f6fb] font-sans text-slate-800">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(ellipse_at_top,_#dbeafe_0%,_transparent_60%)]" />
-      <div className="pointer-events-none absolute -right-24 top-40 h-72 w-72 rounded-full bg-emerald-100/70 blur-3xl" />
+    <div className="flex h-dvh flex-col bg-[#e9eef5] font-sans text-slate-800">
+      <header className="shrink-0 border-b border-slate-200/80 bg-white/95 px-4 py-3 text-center backdrop-blur">
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+          AI 가계부 챗봇
+        </h1>
+      </header>
 
-      <div className="relative mx-auto flex w-full max-w-xl flex-col px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-14">
-        <header className="mb-8 text-center sm:mb-10">
-          <p className="mb-3 text-sm font-semibold tracking-[0.18em] text-emerald-600 uppercase sm:text-xs sm:tracking-[0.22em]">
-            Personal Ledger
+      <section className="shrink-0 border-b border-slate-200/70 bg-[#f7f9fc] px-3 py-3 sm:px-4">
+        <div className="mb-2 flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold text-slate-600 sm:text-base">지출 내역</h2>
+          <p className="text-sm text-slate-500 sm:text-base">
+            합계 <span className="font-semibold text-slate-800">{formatWon(total)}원</span>
           </p>
-          <h1 className="text-4xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
-            나의 스마트 가계부
-          </h1>
-          <p className="mt-3 text-base leading-relaxed text-slate-500 sm:text-sm">
-            날짜, 금액, 내용을 입력하고 지출을 기록하세요.
-          </p>
-        </header>
-
-        <main className="w-full rounded-3xl border border-white/80 bg-white/90 p-5 shadow-[0_20px_50px_-24px_rgba(15,23,42,0.35)] backdrop-blur sm:p-8">
-          <form className="space-y-7 sm:space-y-5" onSubmit={handleSubmit}>
-            <label className="block">
-              <span className="mb-2.5 block text-base font-medium text-slate-600 sm:mb-2 sm:text-sm">
-                날짜
-              </span>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                required
-                className={fieldClass}
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-2.5 block text-base font-medium text-slate-600 sm:mb-2 sm:text-sm">
-                금액
-              </span>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                inputMode="numeric"
-                placeholder="0"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                required
-                className={fieldClass}
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-2.5 block text-base font-medium text-slate-600 sm:mb-2 sm:text-sm">
-                내용
-              </span>
-              <input
-                type="text"
-                placeholder="예: 점심 식사, 교통비"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                required
-                className={fieldClass}
-              />
-            </label>
-
-            {error ? (
-              <p className="rounded-2xl bg-red-50 px-4 py-3.5 text-base leading-relaxed text-red-600 sm:text-sm">
-                {error}
-              </p>
-            ) : null}
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="min-h-16 w-full rounded-2xl bg-slate-900 text-lg font-semibold text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800 enabled:active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-12 sm:text-sm"
-            >
-              {saving ? "저장 중..." : "저장하기"}
-            </button>
-          </form>
-        </main>
-
-        <section className="mt-8 w-full sm:mt-8">
-          <div className="mb-4 flex items-end justify-between gap-3">
-            <h2 className="text-base font-semibold text-slate-700 sm:text-sm">지출 내역</h2>
-            <p className="text-base text-slate-500 sm:text-sm">
-              합계{" "}
-              <span className="font-semibold text-slate-900">{formatWon(total)}원</span>
-            </p>
-          </div>
-
+        </div>
+        <div className="max-h-40 overflow-y-auto overscroll-contain sm:max-h-48">
           {loading ? (
-            <p className="rounded-2xl border border-dashed border-slate-200 bg-white/60 px-4 py-8 text-center text-base text-slate-400 sm:text-sm">
+            <p className="rounded-2xl bg-white px-4 py-5 text-center text-base text-slate-400">
               내역을 불러오는 중...
             </p>
           ) : expenses.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-slate-200 bg-white/60 px-4 py-8 text-center text-base text-slate-400 sm:text-sm">
+            <p className="rounded-2xl bg-white px-4 py-5 text-center text-base text-slate-400">
               아직 저장된 지출이 없습니다.
             </p>
           ) : (
-            <ul className="grid gap-4 sm:gap-3">
+            <ul className="grid gap-2">
               {expenses.map((item) => (
                 <li
                   key={item.id}
-                  className="rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.35)]"
+                  className="rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-100"
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-lg font-semibold break-words text-slate-800 sm:text-base">
-                        {item.description}
-                      </p>
-                      <p className="mt-1 text-base text-slate-400 sm:text-sm">{item.date}</p>
+                      <p className="truncate text-base font-medium text-slate-800">{item.description}</p>
+                      <p className="mt-0.5 text-sm text-slate-400">{item.date}</p>
                     </div>
-                    <p className="shrink-0 text-xl font-semibold text-emerald-700 sm:text-lg">
-                      -{formatWon(item.amount)}원
+                    <p className="shrink-0 text-base font-semibold text-slate-900 sm:text-lg">
+                      {formatWon(item.amount)}원
                     </p>
                   </div>
                 </li>
               ))}
             </ul>
           )}
-        </section>
-      </div>
+        </div>
+      </section>
+
+      <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-5">
+        <div className="mx-auto flex w-full max-w-xl flex-col gap-3">
+          {messages.map((item) => (
+            <div
+              key={item.id}
+              className={item.role === "user" ? "flex justify-end" : "flex justify-start"}
+            >
+              <p
+                className={
+                  item.role === "user"
+                    ? "max-w-[82%] rounded-[18px] rounded-br-md bg-[#fee500] px-4 py-2.5 text-base leading-relaxed text-slate-900 shadow-sm"
+                    : "max-w-[82%] rounded-[18px] rounded-bl-md bg-white px-4 py-2.5 text-base leading-relaxed text-slate-800 shadow-sm"
+                }
+              >
+                {item.text}
+              </p>
+            </div>
+          ))}
+          {sending ? (
+            <div className="flex justify-start">
+              <p className="rounded-[18px] rounded-bl-md bg-white px-4 py-2.5 text-base text-slate-400 shadow-sm">
+                입력 중...
+              </p>
+            </div>
+          ) : null}
+          <div ref={bottomRef} />
+        </div>
+      </main>
+
+      <form
+        onSubmit={handleSubmit}
+        className="shrink-0 border-t border-slate-200 bg-white px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4"
+      >
+        {error ? <p className="mb-2 text-sm text-red-500">{error}</p> : null}
+        <div className="mx-auto flex w-full max-w-xl items-end gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="메시지를 입력하세요"
+            disabled={sending}
+            className="min-h-12 flex-1 rounded-full border border-slate-200 bg-slate-50 px-4 text-base text-slate-900 outline-none placeholder:text-slate-400 focus:border-slate-300 focus:bg-white sm:min-h-11"
+          />
+          <button
+            type="submit"
+            disabled={sending || !input.trim()}
+            className="min-h-12 min-w-12 rounded-full bg-[#fee500] px-4 text-base font-semibold text-slate-900 shadow-sm transition enabled:active:scale-95 disabled:opacity-40 sm:min-h-11"
+          >
+            전송
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
