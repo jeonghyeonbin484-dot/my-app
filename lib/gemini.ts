@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { Expense } from "@/lib/expenses";
 import { formatWon } from "@/lib/expenses";
 
@@ -11,8 +10,7 @@ export type ChatIntent = {
 };
 
 function todayKst() {
-  return new Date()
-    .toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
 }
 
 function parseJson(text: string): ChatIntent {
@@ -46,15 +44,6 @@ export async function interpretLedgerMessage(
     .map((item) => `- ${item.date} / ${formatWon(item.amount)}원 / ${item.description}`)
     .join("\n");
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
-    generationConfig: {
-      temperature: 0.3,
-      responseMimeType: "application/json",
-    },
-  });
-
   const prompt = `너는 한국어 가계부 챗봇이다. 사용자 말에서 지출을 파악하거나 내역을 안내한다.
 오늘은 ${todayKst()} (Asia/Seoul)이다.
 날짜는 YYYY-MM-DD 형식으로만 적어라. "오늘"은 오늘 날짜, "어제"는 하루 전이다.
@@ -81,7 +70,53 @@ ${recent || "(없음)"}
 
 사용자: ${message}`;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-  return parseJson(text);
+  const models = [
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+  ];
+
+  let lastMessage = "Gemini 응답을 만들지 못했습니다.";
+
+  for (const modelName of models) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.3,
+            responseMimeType: "application/json",
+          },
+        }),
+      },
+    );
+
+    const payload = (await response.json()) as {
+      error?: { message?: string };
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+
+    if (!response.ok) {
+      lastMessage = payload.error?.message ?? lastMessage;
+      continue;
+    }
+
+    const text = payload.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    if (!text) {
+      lastMessage = "Gemini가 빈 응답을 보냈습니다.";
+      continue;
+    }
+
+    return parseJson(text);
+  }
+
+  throw new Error(lastMessage);
 }

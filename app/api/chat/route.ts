@@ -45,7 +45,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "메시지를 입력해 주세요." }, { status: 400 });
     }
 
-    const expenses = await loadExpenses();
+    const expenses = await Promise.race([
+      loadExpenses(),
+      new Promise<Expense[]>((resolve) => setTimeout(() => resolve([]), 1200)),
+    ]);
     const parsed = await interpretLedgerMessage(message, expenses, apiKey);
 
     if (parsed.intent === "save" && parsed.date && parsed.amount && parsed.amount > 0 && parsed.description) {
